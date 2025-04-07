@@ -189,7 +189,7 @@ jobs:
               
               echo "✅ Successfully updated multi-arch: $dest_image"
             fi
-          done < $GITHUB_WORKSPACE/image.txt
+          done < $GITHUB_WORKSPACE/images.txt
 
       - name: Clean up
         run: |
