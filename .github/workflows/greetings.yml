@@ -93,99 +93,126 @@
 #           docker builder prune -a -f
 
 
-name: Smart Multi-Arch Sync (Fixed Multi-Platform)
+name: Multi-Arch Image Sync (Robust Version)
 
 on:
   workflow_dispatch:
   schedule:
-    - cron: '*/30 * * * *'
+    - cron: '0 */6 * * *'  # 每6小时运行一次
 
 jobs:
   sync:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
-      - name: 检出代码
+      - name: Checkout code
         uses: actions/checkout@v4
-      
-      - name: 登录镜像仓库
-        run: |
-          docker login docker.cnb.cool -u cnb -p ${{ secrets.cnb }}
 
-      - name: 设置Buildx
+      - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
         with:
           platforms: linux/amd64,linux/arm64,linux/arm/v7
+          install: true
 
-      - name: 安装必要工具
-        run: sudo apt-get install -y jq
+      - name: Login to Docker Registry
+        run: |
+          echo "${{ secrets.CNB_REGISTRY_TOKEN }}" | docker login docker.cnb.cool -u ${{ secrets.CNB_USERNAME }} --password-stdin
 
-      - name: 多平台镜像同步
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y jq
+          docker buildx version
+          docker info
+
+      - name: Multi-platform image synchronization
         run: |
           set -eo pipefail
-          
-          # 创建支持多平台的构建器
-          docker buildx create --name multiarch --platform linux/amd64,linux/arm64,linux/arm/v7 --use
+
+          # 创建专用构建器实例
+          docker buildx create --name multiarch_sync --driver docker-container --platform linux/amd64,linux/arm64,linux/arm/v7 --use
           docker buildx inspect --bootstrap
 
+          # 处理镜像列表
           while IFS= read -r line; do
+            # 跳过注释和空行
             [[ "$line" =~ ^#|^$ ]] && continue
 
-            # 改进的平台参数解析（支持逗号/空格分隔）
+            # 解析输入行 (格式: 源镜像 目标镜像 平台列表)
             src_image=$(echo "$line" | awk '{print $1}')
             dest_image=$(echo "$line" | awk '{print $2}')
             platforms=$(echo "$line" | awk '{$1=$2=""; print $0}' | xargs | tr ',' ' ' | tr -s ' ')
-            
-            echo "🔍 处理: $src_image => $dest_image [平台: $platforms]"
 
-            # 获取源镜像所有平台的manifest
+            echo "🔍 Processing: $src_image => $dest_image [Platforms: $platforms]"
+
+            # 获取源镜像清单
             if ! src_manifest=$(docker manifest inspect "$src_image" 2>/dev/null); then
-              echo "❌ 无法获取源镜像清单: $src_image"
+              echo "❌ Failed to inspect source image: $src_image"
               continue
             fi
 
-            # 检查是否需要更新（比较所有平台）
+            # 检查是否需要更新
             NEED_UPDATE=false
             if docker manifest inspect "$dest_image" &>/dev/null; then
               # 比较每个平台的digest
               for platform in $platforms; do
-                src_digest=$(echo "$src_manifest" | jq -r --arg plat "$platform" '
-                  .manifests[] | select(.platform.architecture == $plat | split("/")[1]) | .digest')
-                dst_digest=$(docker manifest inspect "$dest_image" | jq -r --arg plat "$platform" '
-                  .manifests[] | select(.platform.architecture == $plat | split("/")[1]) | .digest')
+                # 标准化平台标识符 (处理linux/arm/v7等格式)
+                norm_platform=$(echo "$platform" | sed 's|linux/||; s|/|-|g')
                 
+                # 获取源镜像digest
+                src_digest=$(echo "$src_manifest" | jq -r --arg plat "$norm_platform" '
+                  .manifests[] | 
+                  select(
+                    (.platform.architecture + (.platform.variant? // "")) == $plat or
+                    (.platform.os + "/" + .platform.architecture + (.platform.variant? // "" | "/" + .)) == $plat
+                  ) | .digest')
+
+                if [ -z "$src_digest" ]; then
+                  echo "⚠️ Source image does not support platform: $platform"
+                  continue
+                fi
+
+                # 获取目标镜像digest
+                dst_digest=$(docker manifest inspect "$dest_image" | jq -r --arg plat "$norm_platform" '
+                  .manifests[] | 
+                  select(
+                    (.platform.architecture + (.platform.variant? // "")) == $plat or
+                    (.platform.os + "/" + .platform.architecture + (.platform.variant? // "" | "/" + .)) == $plat
+                  ) | .digest')
+
                 if [ "$src_digest" != "$dst_digest" ]; then
                   NEED_UPDATE=true
-                  echo "🔄 平台 $platform 有更新 (${dst_digest:0:12} → ${src_digest:0:12})"
-                  break
+                  echo "🔄 Platform $platform needs update (${dst_digest:0:12} → ${src_digest:0:12})"
                 fi
               done
             else
               NEED_UPDATE=true
-              echo "🆕 目标镜像不存在"
+              echo "🆕 Destination image does not exist"
             fi
 
             if [ "$NEED_UPDATE" = true ]; then
-              echo "🚀 开始同步多平台镜像..."
+              echo "🚀 Syncing multi-platform image..."
               
-              # 使用buildkit的registry缓存直接复制镜像
+              # 使用高效的registry-to-registry复制
               docker buildx build \
                 --platform "$platforms" \
                 --output=type=image,name=$dest_image,push=true \
                 --cache-from=type=registry,ref=$src_image \
-                --cache-to=type=inline \
+                --provenance=false \
+                --sbom=false \
                 - <<< "FROM $src_image"
               
-              echo "🎉 同步完成: $dest_image"
-              echo "📊 镜像摘要: $(echo "$src_manifest" | jq -r '.config.digest' | cut -d: -f2 | head -c 12)"
+              echo "🎉 Successfully synced: $dest_image"
+              echo "📊 New digest: $(echo "$src_manifest" | jq -r '.config.digest' | cut -d: -f2 | head -c 12)"
             else
-              echo "✅ 所有平台已是最新"
+              echo "✅ All platforms are up-to-date"
             fi
-          done < $GITHUB_WORKSPACE/images.txt
+          done < "$GITHUB_WORKSPACE/images.txt"
 
-          # 清理
-          docker buildx rm multiarch || true
+          # 清理构建器
+          docker buildx rm multiarch_sync || true
 
-      - name: 清理资源
+      - name: Clean up
         run: |
-          docker system prune -a -f
+          docker system prune -a -f --volumes
           docker builder prune -a -f
