@@ -98,7 +98,7 @@ jobs:
 
             echo "✅ Successfully updated multi-arch: $dest_image"
           fi
-        done < image.txt
+        done < images.txt
 
     - name: Clean up
       run: |
