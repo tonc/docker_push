@@ -93,7 +93,7 @@
 #           docker builder prune -a -f
 
 
-name: Fixed Multi-Arch Image Sync
+name: Single-Platform Image Sync Fix
 
 on:
   workflow_dispatch:
@@ -109,8 +109,6 @@ jobs:
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
-        with:
-          platforms: linux/amd64,linux/arm64,linux/arm/v7
 
       # 登录到镜像仓库
       - name: 登录到 cnb 镜像仓库
@@ -127,40 +125,26 @@ jobs:
           while IFS= read -r line; do
             [[ "$line" =~ ^#|^$ ]] && continue
 
-            # 解析输入行 (自动补全平台前缀)
+            # 解析输入行
             src_image=$(echo "$line" | awk '{print $1}')
             dest_image=$(echo "$line" | awk '{print $2}')
             platforms=$(echo "$line" | awk '{$1=$2=""; print $0}' | xargs | tr ',' ' ' | sed 's/^/linux\//; s/ / linux\//g')
             
             echo "🔍 Processing: $src_image => $dest_image [Platforms: $platforms]"
 
-            # 获取源镜像清单
-            if ! src_manifest=$(docker manifest inspect "$src_image" 2>/dev/null); then
-              echo "❌ Failed to inspect source image"
-              continue
-            fi
-
-            # 检查更新
+            # 改进的manifest检查逻辑
             NEED_UPDATE=false
             if docker manifest inspect "$dest_image" &>/dev/null; then
-              for platform in $platforms; do
-                platform_type=$(echo "$platform" | cut -d'/' -f2)
-                src_digest=$(echo "$src_manifest" | jq -r --arg plat "$platform_type" '
-                  .manifests[] | select(.platform.architecture == $plat) | .digest')
-                
-                dst_digest=$(docker manifest inspect "$dest_image" | jq -r --arg plat "$platform_type" '
-                  .manifests[] | select(.platform.architecture == $plat) | .digest')
+              # 获取源镜像digest
+              src_digest=$(docker inspect --format='{{.Id}}' "$src_image" 2>/dev/null || docker manifest inspect "$src_image" | jq -r '.config.digest')
+              
+              # 获取目标镜像digest
+              dest_digest=$(docker inspect --format='{{.Id}}' "$dest_image" 2>/dev/null || docker manifest inspect "$dest_image" | jq -r '.config.digest')
 
-                if [ -z "$src_digest" ]; then
-                  echo "⚠️ Source image doesn't support platform: $platform"
-                  continue
-                fi
-
-                if [ "$src_digest" != "$dst_digest" ]; then
-                  NEED_UPDATE=true
-                  echo "🔄 Platform $platform needs update (${dst_digest:0:12} → ${src_digest:0:12})"
-                fi
-              done
+              if [ "$src_digest" != "$dest_digest" ]; then
+                NEED_UPDATE=true
+                echo "🔄 Update needed (${dest_digest:0:12} → ${src_digest:0:12})"
+              fi
             else
               NEED_UPDATE=true
               echo "🆕 Destination image doesn't exist"
@@ -169,13 +153,19 @@ jobs:
             if [ "$NEED_UPDATE" = true ]; then
               echo "🚀 Syncing image..."
               
+              # 更健壮的单平台同步方法
               platform_args=$(echo "$platforms" | tr ' ' ',')
               
-              docker buildx build \
-                --platform "$platform_args" \
-                --output=type=image,name=$dest_image,push=true \
-                --cache-from=type=registry,ref=$src_image \
-                - <<< "FROM $src_image"
+              docker pull "$src_image" --platform "$platform_args"
+              docker tag "$src_image" "$dest_image"
+              docker push "$dest_image"
+              
+              # 可选：使用buildx的替代方案
+              # docker buildx build \
+              #   --platform "$platform_args" \
+              #   --output=type=image,name=$dest_image,push=true \
+              #   --cache-from=type=registry,ref=$src_image \
+              #   - <<< "FROM $src_image"
               
               echo "🎉 Synced successfully: $dest_image"
             else
