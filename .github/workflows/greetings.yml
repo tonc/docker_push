@@ -41,6 +41,11 @@ jobs:
         run: |
           set -e  # 出现错误时退出
           
+          # 创建临时目录用于构建上下文
+          mkdir -p /tmp/docker-build
+          cd /tmp/docker-build
+          echo "FROM scratch" > Dockerfile
+          
           while IFS= read -r line; do
             # 跳过注释/空行
             [[ "$line" =~ ^#|^$ ]] && continue
@@ -72,17 +77,20 @@ jobs:
             fi
 
             if [ "$NEED_UPDATE" = true ]; then
-              # 使用 buildx 直接构建并推送多架构镜像，不生成临时标签
+              # 使用 buildx 构建并推送多架构镜像
+              # 通过 --build-context 指定远程镜像作为构建源
               docker buildx build \
                 --platform=$platforms \
                 --tag=$dest_image \
                 --push \
-                $src_image
+                --build-context myimage=docker-image://${src_image} \
+                --file Dockerfile .
 
               echo "✅ Successfully updated multi-arch: $dest_image"
             fi
-          done < images.txt
+          done < $GITHUB_WORKSPACE/images.txt
 
       - name: Clean up
         run: |
           docker system prune -a -f
+          rm -rf /tmp/docker-build
