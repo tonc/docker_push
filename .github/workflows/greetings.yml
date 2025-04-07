@@ -1,146 +1,96 @@
-# name: Smart Multi-Arch Sync (Latest Only)
-
-# on:
-#   workflow_dispatch:
-#   schedule:
-#     - cron: '*/30 * * * *'  # 每半小时运行一次
-
-# jobs:
-#   sync:
-#     runs-on: ubuntu-latest
-#     steps:
-#       # # 增加可用磁盘空间
-#       # - name: Maximize build space
-#       #   uses: easimon/maximize-build-space@master
-#       #   with:
-#       #     root-reserve-mb: 2048
-#       #     swap-size-mb: 128
-#       #     remove-dotnet: 'true'
-#       #     remove-haskell: 'true'
-#       #     remove-android: 'true'
-#       #     remove-codeql: 'true'
-#       #     build-mount-path: '/var/lib/docker/'
-
-#       # - name: Restart docker
-#       #   run: sudo service docker restart
-
-#       - name: 检出代码
-#         uses: actions/checkout@v4
-      
-#       # 登录到 cnb
-#       - name: 登录到 cnb
-#         run: |
-#           docker login docker.cnb.cool -u cnb -p ${{ secrets.cnb }}
-
-#       - name: Setup Buildx
-#         uses: docker/setup-buildx-action@v3
-#         with:
-#           platforms: linux/amd64,linux/arm64,linux/arm/v7
-
-#       - name: Process Images with Update Check
-#         run: |
-#           set -e  # 出现错误时退出
-          
-#           # 创建临时目录用于构建上下文
-#           mkdir -p /tmp/docker-build
-#           cd /tmp/docker-build
-#           echo "FROM scratch" > Dockerfile
-          
-#           while IFS= read -r line; do
-#             # 跳过注释/空行
-#             [[ "$line" =~ ^#|^$ ]] && continue
-
-#             # 解析输入
-#             src_image=$(echo "$line" | awk '{print $1}')
-#             dest_image=$(echo "$line" | awk '{print $2}')
-#             platforms=$(echo "$line" | awk '{print $3}' | tr ',' ',')
-
-#             echo "🔍 Processing: $src_image => $dest_image (${platforms// /,})"
-
-#             # 检查源镜像是否有更新
-#             NEED_UPDATE=false
-#             LATEST_DIGEST=$(docker manifest inspect $src_image | jq -r '.config.digest')
-            
-#             # 尝试获取目标镜像的当前digest
-#             if docker manifest inspect $dest_image &> /dev/null; then
-#               CURRENT_DIGEST=$(docker manifest inspect $dest_image | jq -r '.config.digest')
-#               if [ "$LATEST_DIGEST" != "$CURRENT_DIGEST" ]; then
-#                 NEED_UPDATE=true
-#                 echo "🔄 Update detected for $src_image"
-#               else
-#                 echo "✅ $dest_image is already up-to-date"
-#                 continue
-#               fi
-#             else
-#               NEED_UPDATE=true
-#               echo "🆕 $dest_image does not exist, will create"
-#             fi
-
-#             if [ "$NEED_UPDATE" = true ]; then
-#               # 使用 buildx 构建并推送多架构镜像
-#               # 通过 --build-context 指定远程镜像作为构建源
-#               docker buildx build \
-#                 --platform=$platforms \
-#                 --tag=$dest_image \
-#                 --push \
-#                 --build-context myimage=docker-image://${src_image} \
-#                 --file Dockerfile .
-
-#               echo "✅ Successfully updated multi-arch: $dest_image"
-#             fi
-#           done < $GITHUB_WORKSPACE/images.txt
-
-#       - name: Clean up
-#         run: |
-#           docker system prune -a -f
-#           rm -rf /tmp/docker-build
-
-
-name: Mirror Multi-Arch Docker Images
+name: Smart Multi-Arch Sync (Latest Only)
 
 on:
   workflow_dispatch:
   schedule:
-    - cron: '0 3 * * *'  # 每天凌晨3点自动运行
+    - cron: '*/30 * * * *'  # 每半小时运行一次
 
 jobs:
-  mirror-images:
+  sync:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout repository
+      # # 增加可用磁盘空间
+      # - name: Maximize build space
+      #   uses: easimon/maximize-build-space@master
+      #   with:
+      #     root-reserve-mb: 2048
+      #     swap-size-mb: 128
+      #     remove-dotnet: 'true'
+      #     remove-haskell: 'true'
+      #     remove-android: 'true'
+      #     remove-codeql: 'true'
+      #     build-mount-path: '/var/lib/docker/'
+
+      # - name: Restart docker
+      #   run: sudo service docker restart
+
+      - name: 检出代码
         uses: actions/checkout@v4
-
-      - name: Set up QEMU for multi-arch support
-        uses: docker/setup-qemu-action@v3
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-        with:
-          driver-opts: network=host
-
+      
       # 登录到 cnb
       - name: 登录到 cnb
         run: |
           docker login docker.cnb.cool -u cnb -p ${{ secrets.cnb }}
 
-      - name: Mirror Images with Multi-Arch Support
-        run: |
-          while IFS= read -r line; do
-            if [ -z "$line" ]; then
-              continue
-            fi
+      - name: Setup Buildx
+        uses: docker/setup-buildx-action@v3
+        with:
+          platforms: linux/amd64,linux/arm64,linux/arm/v7
 
+      - name: Process Images with Update Check
+        run: |
+          set -e  # 出现错误时退出
+          
+          # 创建临时目录用于构建上下文
+          mkdir -p /tmp/docker-build
+          cd /tmp/docker-build
+          echo "FROM scratch" > Dockerfile
+          
+          while IFS= read -r line; do
+            # 跳过注释/空行
+            [[ "$line" =~ ^#|^$ ]] && continue
+
+            # 解析输入
             src_image=$(echo "$line" | awk '{print $1}')
             dest_image=$(echo "$line" | awk '{print $2}')
             platforms=$(echo "$line" | awk '{print $3}' | tr ',' ',')
 
-            echo "Mirroring $src_image to $dest_image (Platforms: $platforms)"
+            echo "🔍 Processing: $src_image => $dest_image (${platforms// /,})"
 
-            # 使用 Buildx 拉取并推送多平台镜像
-            docker buildx build \
-              --platform "$platforms" \
-              --tag "$dest_image" \
-              --push \
-              "docker-image://$src_image"
+            # 检查源镜像是否有更新
+            NEED_UPDATE=false
+            LATEST_DIGEST=$(docker manifest inspect $src_image | jq -r '.config.digest')
+            
+            # 尝试获取目标镜像的当前digest
+            if docker manifest inspect $dest_image &> /dev/null; then
+              CURRENT_DIGEST=$(docker manifest inspect $dest_image | jq -r '.config.digest')
+              if [ "$LATEST_DIGEST" != "$CURRENT_DIGEST" ]; then
+                NEED_UPDATE=true
+                echo "🔄 Update detected for $src_image"
+              else
+                echo "✅ $dest_image is already up-to-date"
+                continue
+              fi
+            else
+              NEED_UPDATE=true
+              echo "🆕 $dest_image does not exist, will create"
+            fi
 
-          done < images.txt
+            if [ "$NEED_UPDATE" = true ]; then
+              # 使用 buildx 构建并推送多架构镜像
+              # 通过 --build-context 指定远程镜像作为构建源
+              docker buildx build \
+                --platform=$platforms \
+                --tag=$dest_image \
+                --push \
+                --build-context myimage=docker-image://${src_image} \
+                --file Dockerfile .
+
+              echo "✅ Successfully updated multi-arch: $dest_image"
+            fi
+          done < $GITHUB_WORKSPACE/images.txt
+
+      - name: Clean up
+        run: |
+          docker system prune -a -f
+          rm -rf /tmp/docker-build
