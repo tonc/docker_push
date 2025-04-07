@@ -114,9 +114,10 @@ jobs:
           platforms: linux/amd64,linux/arm64,linux/arm/v7
           install: true
 
-      - name: Login to Docker Registry
+      # 登录到镜像仓库
+      - name: 登录到 cnb 镜像仓库
         run: |
-          echo "${{ secrets.CNB_REGISTRY_TOKEN }}" | docker login docker.cnb.cool -u ${{ secrets.CNB_USERNAME }} --password-stdin
+          docker login docker.cnb.cool -u cnb -p ${{ secrets.cnb }}
 
       - name: Install dependencies
         run: |
