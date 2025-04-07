@@ -9,97 +9,80 @@ jobs:
   sync:
     runs-on: ubuntu-latest
     steps:
-    # 增加可用磁盘空间
-    - name: Maximize build space
-      uses: easimon/maximize-build-space@master
-      with:
-        root-reserve-mb: 2048
-        swap-size-mb: 128
-        remove-dotnet: 'true'
-        remove-haskell: 'true'
-        remove-android: 'true'
-        remove-codeql: 'true'
-        build-mount-path: '/var/lib/docker/'
+      # 增加可用磁盘空间
+      - name: Maximize build space
+        uses: easimon/maximize-build-space@master
+        with:
+          root-reserve-mb: 2048
+          swap-size-mb: 128
+          remove-dotnet: 'true'
+          remove-haskell: 'true'
+          remove-android: 'true'
+          remove-codeql: 'true'
+          build-mount-path: '/var/lib/docker/'
 
-    - name: Restart docker
-      run: sudo service docker restart
+      - name: Restart docker
+        run: sudo service docker restart
 
-    - name: 检出代码
-      uses: actions/checkout@v4
+      - name: 检出代码
+        uses: actions/checkout@v4
       
-    # 登录到 cnb
-    - name: 登录到 cnb
-      run: |
-        docker login docker.cnb.cool -u cnb -p ${{ secrets.cnb }}
+      # 登录到 cnb
+      - name: 登录到 cnb
+        run: |
+          docker login docker.cnb.cool -u cnb -p ${{ secrets.cnb }}
 
-    - name: Setup Buildx
-      uses: docker/setup-buildx-action@v3
-      with:
-        platforms: linux/amd64,linux/arm64,linux/arm/v7
+      - name: Setup Buildx
+        uses: docker/setup-buildx-action@v3
+        with:
+          platforms: linux/amd64,linux/arm64,linux/arm/v7
 
-    - name: Process Images with Update Check
-      run: |
-        set -e  # 出现错误时退出
-        
-        while IFS= read -r line; do
-          # 跳过注释/空行
-          [[ "$line" =~ ^#|^$ ]] && continue
-
-          # 解析输入
-          src_image=$(echo "$line" | awk '{print $1}')
-          dest_image=$(echo "$line" | awk '{print $2}')
-          platforms=$(echo "$line" | awk '{print $3}' | tr ',' ' ')
-
-          echo "🔍 Processing: $src_image => $dest_image (${platforms// /,})"
-
-          # 检查源镜像是否有更新
-          NEED_UPDATE=false
-          LATEST_DIGEST=$(docker manifest inspect $src_image | jq -r '.config.digest')
+      - name: Process Images with Update Check
+        run: |
+          set -e  # 出现错误时退出
           
-          # 尝试获取目标镜像的当前digest
-          if docker manifest inspect $dest_image &> /dev/null; then
-            CURRENT_DIGEST=$(docker manifest inspect $dest_image | jq -r '.config.digest')
-            if [ "$LATEST_DIGEST" != "$CURRENT_DIGEST" ]; then
-              NEED_UPDATE=true
-              echo "🔄 Update detected for $src_image"
-            else
-              echo "✅ $dest_image is already up-to-date"
-              continue
-            fi
-          else
-            NEED_UPDATE=true
-            echo "🆕 $dest_image does not exist, will create"
-          fi
+          while IFS= read -r line; do
+            # 跳过注释/空行
+            [[ "$line" =~ ^#|^$ ]] && continue
 
-          if [ "$NEED_UPDATE" = true ]; then
-            # 创建manifest命令
-            manifest_cmd="docker manifest create ${dest_image}"
+            # 解析输入
+            src_image=$(echo "$line" | awk '{print $1}')
+            dest_image=$(echo "$line" | awk '{print $2}')
+            platforms=$(echo "$line" | awk '{print $3}' | tr ',' ',')
+
+            echo "🔍 Processing: $src_image => $dest_image (${platforms// /,})"
+
+            # 检查源镜像是否有更新
+            NEED_UPDATE=false
+            LATEST_DIGEST=$(docker manifest inspect $src_image | jq -r '.config.digest')
             
-            # 处理每个平台
-            for platform in $platforms; do
-              # 拉取指定平台的镜像
-              docker pull --quiet --platform=$platform $src_image
-              
-              # 直接使用目标标签
-              platform_tag="${dest_image}-$(echo $platform | sed 's/\//-/g')"
-              docker tag $src_image $platform_tag
-              docker push --quiet $platform_tag
-              
-              # 添加到manifest
-              manifest_cmd+=" --amend $platform_tag"
-              
-              # 清理
-              docker rmi $src_image $platform_tag || true
-            done
+            # 尝试获取目标镜像的当前digest
+            if docker manifest inspect $dest_image &> /dev/null; then
+              CURRENT_DIGEST=$(docker manifest inspect $dest_image | jq -r '.config.digest')
+              if [ "$LATEST_DIGEST" != "$CURRENT_DIGEST" ]; then
+                NEED_UPDATE=true
+                echo "🔄 Update detected for $src_image"
+              else
+                echo "✅ $dest_image is already up-to-date"
+                continue
+              fi
+            else
+              NEED_UPDATE=true
+              echo "🆕 $dest_image does not exist, will create"
+            fi
 
-            # 创建并推送manifest
-            eval $manifest_cmd
-            docker manifest push $dest_image
+            if [ "$NEED_UPDATE" = true ]; then
+              # 使用 buildx 直接构建并推送多架构镜像，不生成临时标签
+              docker buildx build \
+                --platform=$platforms \
+                --tag=$dest_image \
+                --push \
+                $src_image
 
-            echo "✅ Successfully updated multi-arch: $dest_image"
-          fi
-        done < images.txt
+              echo "✅ Successfully updated multi-arch: $dest_image"
+            fi
+          done < images.txt
 
-    - name: Clean up
-      run: |
-        docker system prune -a -f
+      - name: Clean up
+        run: |
+          docker system prune -a -f
