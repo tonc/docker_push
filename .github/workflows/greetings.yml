@@ -149,12 +149,12 @@ jobs:
               echo "🔄 Update detected, syncing..."
               
               # 方法1：使用 buildx imagetools（推荐）
-              docker buildx imagetools create --tag $dest_image $src_image
+              # docker buildx imagetools create --tag $dest_image $src_image
               
               # 方法2：或者使用 manifest（兼容性更好）
-              # docker manifest rm $dest_image 2>/dev/null || true
-              # docker manifest create $dest_image $(for p in $platforms; do echo "$src_image --arch ${p#*/}"; done)
-              # docker manifest push $dest_image
+              docker manifest rm $dest_image 2>/dev/null || true
+              docker manifest create $dest_image $(for p in $platforms; do echo "$src_image --arch ${p#*/}"; done)
+              docker manifest push $dest_image
               
               echo "✅ Successfully synced"
             else
