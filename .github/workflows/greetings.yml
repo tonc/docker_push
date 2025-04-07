@@ -93,12 +93,12 @@
 #           docker builder prune -a -f
 
 
-name: Multi-Arch Image Sync (Robust Version)
+name: Robust Multi-Arch Image Sync
 
 on:
   workflow_dispatch:
   schedule:
-    - cron: '0 */6 * * *'  # 每6小时运行一次
+    - cron: '0 */6 * * *'
 
 jobs:
   sync:
@@ -119,101 +119,102 @@ jobs:
         run: |
           docker login docker.cnb.cool -u cnb -p ${{ secrets.cnb }}
 
-      - name: Install dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y jq
-          docker buildx version
-          docker info
+      - name: Install tools
+        run: sudo apt-get install -y jq
 
-      - name: Multi-platform image synchronization
+      - name: Sync Images
         run: |
           set -eo pipefail
-
-          # 创建专用构建器实例
-          docker buildx create --name multiarch_sync --driver docker-container --platform linux/amd64,linux/arm64,linux/arm/v7 --use
+          
+          # 创建专用构建器
+          docker buildx create --name img_sync --use
           docker buildx inspect --bootstrap
 
-          # 处理镜像列表
           while IFS= read -r line; do
-            # 跳过注释和空行
             [[ "$line" =~ ^#|^$ ]] && continue
 
-            # 解析输入行 (格式: 源镜像 目标镜像 平台列表)
+            # 改进的平台参数解析
             src_image=$(echo "$line" | awk '{print $1}')
             dest_image=$(echo "$line" | awk '{print $2}')
-            platforms=$(echo "$line" | awk '{$1=$2=""; print $0}' | xargs | tr ',' ' ' | tr -s ' ')
+            platforms=$(echo "$line" | awk '{$1=$2=""; print $0}' | xargs | tr ',' ' ' | sed 's/ /\n/g' | sort -u | xargs)
+            
+            # 验证平台格式
+            validated_platforms=""
+            for p in $platforms; do
+              if [[ "$p" =~ ^[a-z0-9]+/[a-z0-9]+([/-][a-z0-9]+)*$ ]]; then
+                validated_platforms="$validated_platforms $p"
+              else
+                echo "⚠️ 跳过无效平台格式: $p"
+              fi
+            done
+            validated_platforms=$(echo "$validated_platforms" | xargs)
 
-            echo "🔍 Processing: $src_image => $dest_image [Platforms: $platforms]"
-
-            # 获取源镜像清单
-            if ! src_manifest=$(docker manifest inspect "$src_image" 2>/dev/null); then
-              echo "❌ Failed to inspect source image: $src_image"
+            if [ -z "$validated_platforms" ]; then
+              echo "❌ 没有有效的平台参数"
               continue
             fi
 
-            # 检查是否需要更新
+            echo "🔍 处理: $src_image => $dest_image [平台: $validated_platforms]"
+
+            # 获取源镜像清单
+            if ! src_manifest=$(docker manifest inspect "$src_image" 2>/dev/null); then
+              echo "❌ 无法获取源镜像清单"
+              continue
+            fi
+
+            # 检查更新
             NEED_UPDATE=false
             if docker manifest inspect "$dest_image" &>/dev/null; then
-              # 比较每个平台的digest
-              for platform in $platforms; do
-                # 标准化平台标识符 (处理linux/arm/v7等格式)
-                norm_platform=$(echo "$platform" | sed 's|linux/||; s|/|-|g')
-                
-                # 获取源镜像digest
-                src_digest=$(echo "$src_manifest" | jq -r --arg plat "$norm_platform" '
+              for platform in $validated_platforms; do
+                platform_type=$(echo "$platform" | cut -d'/' -f2)
+                src_digest=$(echo "$src_manifest" | jq -r --arg plat "$platform_type" '
                   .manifests[] | 
-                  select(
-                    (.platform.architecture + (.platform.variant? // "")) == $plat or
-                    (.platform.os + "/" + .platform.architecture + (.platform.variant? // "" | "/" + .)) == $plat
-                  ) | .digest')
+                  select(.platform.architecture == $plat or 
+                         (.platform.architecture + (.platform.variant? // "" | "/" + .)) == $plat) | .digest')
+                
+                dst_digest=$(docker manifest inspect "$dest_image" | jq -r --arg plat "$platform_type" '
+                  .manifests[] | 
+                  select(.platform.architecture == $plat or 
+                         (.platform.architecture + (.platform.variant? // "" | "/" + .)) == $plat) | .digest')
 
                 if [ -z "$src_digest" ]; then
-                  echo "⚠️ Source image does not support platform: $platform"
+                  echo "⚠️ 源镜像不支持平台: $platform"
                   continue
                 fi
 
-                # 获取目标镜像digest
-                dst_digest=$(docker manifest inspect "$dest_image" | jq -r --arg plat "$norm_platform" '
-                  .manifests[] | 
-                  select(
-                    (.platform.architecture + (.platform.variant? // "")) == $plat or
-                    (.platform.os + "/" + .platform.architecture + (.platform.variant? // "" | "/" + .)) == $plat
-                  ) | .digest')
-
                 if [ "$src_digest" != "$dst_digest" ]; then
                   NEED_UPDATE=true
-                  echo "🔄 Platform $platform needs update (${dst_digest:0:12} → ${src_digest:0:12})"
+                  echo "🔄 平台 $platform 需要更新 (${dst_digest:0:12} → ${src_digest:0:12})"
                 fi
               done
             else
               NEED_UPDATE=true
-              echo "🆕 Destination image does not exist"
+              echo "🆕 目标镜像不存在"
             fi
 
             if [ "$NEED_UPDATE" = true ]; then
-              echo "🚀 Syncing multi-platform image..."
+              echo "🚀 开始同步..."
               
-              # 使用高效的registry-to-registry复制
+              # 正确的平台参数格式
+              platform_args=$(echo "$validated_platforms" | tr ' ' ',')
+              
               docker buildx build \
-                --platform "$platforms" \
+                --platform "$platform_args" \
                 --output=type=image,name=$dest_image,push=true \
                 --cache-from=type=registry,ref=$src_image \
                 --provenance=false \
                 --sbom=false \
                 - <<< "FROM $src_image"
               
-              echo "🎉 Successfully synced: $dest_image"
-              echo "📊 New digest: $(echo "$src_manifest" | jq -r '.config.digest' | cut -d: -f2 | head -c 12)"
+              echo "🎉 同步成功: $dest_image"
             else
-              echo "✅ All platforms are up-to-date"
+              echo "✅ 已是最新"
             fi
           done < "$GITHUB_WORKSPACE/images.txt"
 
-          # 清理构建器
-          docker buildx rm multiarch_sync || true
+          docker buildx rm img_sync || true
 
       - name: Clean up
         run: |
-          docker system prune -a -f --volumes
+          docker system prune -a -f
           docker builder prune -a -f
