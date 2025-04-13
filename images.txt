@@ -1,3 +1,4 @@
+mzz2017/v2raya docker.cnb.cool/xkand/moviepilot/v2raya:latest amd64
 jxxghp/moviepilot-v2:latest docker.cnb.cool/xkand/moviepilot/moviepilot-v2:latest amd64 arm64
 linuxserver/qbittorrent:latest docker.cnb.cool/xkand/moviepilot/qbittorrent:latest amd64 arm64
 linuxserver/transmission:latest docker.cnb.cool/xkand/moviepilot/transmission:latest amd64 arm64
@@ -6,4 +7,3 @@ nyanmisaka/jellyfin:latest docker.cnb.cool/xkand/moviepilot/jellyfin:latest amd6
 xkand/tmdb_hosts:latest docker.cnb.cool/xkand/moviepilot/tmdb_hosts:latest amd64
 containrrr/watchtower:latest docker.cnb.cool/xkand/moviepilot/watchtower:latest amd64
 allanpk716/chinesesubfinder:latest docker.cnb.cool/xkand/moviepilot/chinesesubfinder:latest amd64
-mzz2017/v2raya docker.cnb.cool/xkand/moviepilot/v2raya:latest amd64 arm64
