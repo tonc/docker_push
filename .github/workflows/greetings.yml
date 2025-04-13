@@ -3,7 +3,7 @@ name: Single-Platform Image Sync Fix
 on:
   workflow_dispatch:
   schedule:
-    - cron: '* */1 * * *'
+    - cron: '0 */4 * * *'
 
 jobs:
   sync:
