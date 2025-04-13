@@ -3,60 +3,62 @@ name: 单平台镜像同步（直接推送版）
 on:
   workflow_dispatch:  # 允许手动触发
   schedule:
-    - cron: '*/30 * * * *'  # 每半小时自动运行一次
+    - cron: '*/15 * * * *'  # 每小时整点运行一次（UTC时间）
 
 jobs:
   sync:
     runs-on: ubuntu-latest
     steps:
-      # 第一步：检出代码
       - name: 检出代码
         uses: actions/checkout@v4
 
-      # 第二步：设置Docker Buildx
       - name: 配置Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      # 第三步：登录镜像仓库
-      - name: 登录到cnb镜像仓库
+      - name: 登录镜像仓库
         run: |
           docker login docker.cnb.cool -u cnb -p ${{ secrets.cnb }}
 
-      # 第四步：执行镜像同步（直接推送）
       - name: 同步镜像（直接推送）
         run: |
           set -eo pipefail
           
-          # 创建并启用Buildx构建器
+          # 初始化Buildx
           docker buildx create --name img_sync --use
           docker buildx inspect --bootstrap
 
-          # 逐行读取images.txt文件
+          # 读取镜像列表文件
           while IFS= read -r line; do
-            # 跳过注释行和空行
+            # 跳过注释和空行
             [[ "$line" =~ ^#|^$ ]] && continue
 
-            # 解析输入行：源镜像 目标镜像 平台列表
+            # 解析行内容（格式：源镜像 目标镜像 平台列表）
             src_image=$(echo "$line" | awk '{print $1}')
             dest_image=$(echo "$line" | awk '{print $2}')
-            # 处理平台参数格式：linux/amd64,linux/arm64 → linux/amd64 linux/arm64
-            platforms=$(echo "$line" | awk '{$1=$2=""; print $0}' | xargs | tr ',' ' ' | sed 's/^/linux\//; s/ / linux\//g')
-            
-            echo "🔍 正在处理: $src_image => $dest_image [平台: $platforms]"
-            echo "🚀 直接同步镜像中..."
-            
-            # 核心同步操作（跳过比对直接推送）
-            platform_args=$(echo "$platforms" | tr ' ' ',')  # 转换平台参数格式
-            
-            # 拉取源镜像
-            docker pull "$src_image" --platform "$platform_args"
-            # 重新打标签
-            docker tag "$src_image" "$dest_image"
-            # 推送到目标仓库
-            docker push "$dest_image"
-            
-            echo "🎉 同步成功: $dest_image"
-          done < "$GITHUB_WORKSPACE/images.txt"  # 读取镜像列表文件
+            raw_platforms=$(echo "$line" | awk '{$1=$2=""; print $0}' | xargs)
 
-          # 清理Buildx构建器
+            # 修正平台参数格式（示例输入：amd64,arm64 → 输出：linux/amd64,linux/arm64）
+            platforms=$(echo "$raw_platforms" | sed 's/,/,linux\//g; s/^/linux\//')
+
+            echo "🔍 正在处理: $src_image => $dest_image [平台: $platforms]"
+
+            # 方法1：使用docker pull（简单直接）
+            echo "🚀 方式1：通过docker pull同步..."
+            docker pull "$src_image" --platform "$platforms"
+            docker tag "$src_image" "$dest_image"
+            docker push "$dest_image"
+
+            # 方法2：使用buildx（推荐多平台场景）
+            # echo "🚀 方式2：通过buildx同步..."
+            # docker buildx build \
+            #   --platform "$platforms" \
+            #   --output=type=image,name=$dest_image,push=true \
+            #   --cache-from=type=registry,ref=$src_image \
+            #   - <<< "FROM $src_image"
+
+            echo "🎉 同步成功: $dest_image"
+            echo "----------------------------------------"
+          done < "$GITHUB_WORKSPACE/images.txt"
+
+          # 清理Buildx
           docker buildx rm img_sync || true
