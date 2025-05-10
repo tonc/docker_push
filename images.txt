@@ -5,6 +5,7 @@ linuxserver/transmission:latest docker.cnb.cool/xkand/moviepilot/transmission:la
 amilys/embyserver:latest docker.cnb.cool/xkand/moviepilot/embyserver:latest amd64
 linuxserver/emby:latest docker.cnb.cool/xkand/moviepilot/linuxserverembyserver:latest amd64 arm64
 nyanmisaka/jellyfin:latest docker.cnb.cool/xkand/moviepilot/jellyfin:latest amd64
+nyanmisaka/jellyfin:latest-rockchip docker.cnb.cool/xkand/moviepilot/jellyfin:latest-rockchip arm64
 xkand/tmdb_hosts:latest docker.cnb.cool/xkand/moviepilot/tmdb_hosts:latest amd64
-containrrr/watchtower:latest docker.cnb.cool/xkand/moviepilot/watchtower:latest amd64
-allanpk716/chinesesubfinder:latest docker.cnb.cool/xkand/moviepilot/chinesesubfinder:latest amd64
+containrrr/watchtower:latest docker.cnb.cool/xkand/moviepilot/watchtower:latest amd64 arm64
+allanpk716/chinesesubfinder:latest docker.cnb.cool/xkand/moviepilot/chinesesubfinder:latest amd64 arm64
