@@ -3,7 +3,7 @@ name: 多平台镜像同步（空格分隔版）
 on:
   workflow_dispatch:
   schedule:
-    - cron: '0 */1 * * *'
+    - cron: '0 */12 * * *'
 
 jobs:
   sync:
