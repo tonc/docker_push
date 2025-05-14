@@ -1,11 +1,11 @@
-mzz2017/v2raya:latest docker.cnb.cool/xkand/moviepilot/v2raya:latest amd64 arm64
-jxxghp/moviepilot-v2:latest docker.cnb.cool/xkand/moviepilot/moviepilot-v2:latest amd64 arm64
-linuxserver/qbittorrent:latest docker.cnb.cool/xkand/moviepilot/qbittorrent:latest amd64 arm64
-linuxserver/transmission:latest docker.cnb.cool/xkand/moviepilot/transmission:latest amd64 arm64
-amilys/embyserver:latest docker.cnb.cool/xkand/moviepilot/embyserver:latest amd64
-linuxserver/emby:latest docker.cnb.cool/xkand/moviepilot/linuxserverembyserver:latest amd64 arm64
-nyanmisaka/jellyfin:latest docker.cnb.cool/xkand/moviepilot/jellyfin:latest amd64
-nyanmisaka/jellyfin:latest-rockchip docker.cnb.cool/xkand/moviepilot/jellyfin:latest-rockchip arm64
-xkand/tmdb_hosts:latest docker.cnb.cool/xkand/moviepilot/tmdb_hosts:latest amd64
-containrrr/watchtower:latest docker.cnb.cool/xkand/moviepilot/watchtower:latest amd64 arm64
-allanpk716/chinesesubfinder:latest docker.cnb.cool/xkand/moviepilot/chinesesubfinder:latest amd64 arm64
+mzz2017/v2raya:latest docker.cnb.cool/xkand/moviepilot/v2raya:latest
+jxxghp/moviepilot-v2:latest docker.cnb.cool/xkand/moviepilot/moviepilot-v2:latest
+linuxserver/qbittorrent:latest docker.cnb.cool/xkand/moviepilot/qbittorrent:latest
+linuxserver/transmission:latest docker.cnb.cool/xkand/moviepilot/transmission:latest
+amilys/embyserver:latest docker.cnb.cool/xkand/moviepilot/embyserver:latest
+linuxserver/emby:latest docker.cnb.cool/xkand/moviepilot/linuxserverembyserver:latest
+nyanmisaka/jellyfin:latest docker.cnb.cool/xkand/moviepilot/jellyfin:latest
+nyanmisaka/jellyfin:latest-rockchip docker.cnb.cool/xkand/moviepilot/jellyfin:latest-rockchip
+xkand/tmdb_hosts:latest docker.cnb.cool/xkand/moviepilot/tmdb_hosts:latest
+containrrr/watchtower:latest docker.cnb.cool/xkand/moviepilot/watchtower:latest
+allanpk716/chinesesubfinder:latest docker.cnb.cool/xkand/moviepilot/chinesesubfinder:latest
